@@ -1,0 +1,89 @@
+---
+title: "Predicting Exercise Form"
+author: "Rohil"
+date: "March 31, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(dplyr)
+```
+
+
+In the data set there are several variables that are blank or have NA values for most observations. We remove these are well as the variables associated with the ID of the subject and the time it was done. This cuts the number of variables down from 160 variables to 53. 
+
+```{r}
+ex_tr<-read.csv("pml-training.csv")
+temp_transp<-t(ex_tr[1,])
+ind<-1:160
+#The below index gives the column index of variables that are not NA or empty for most observations
+i<-ind[(!is.na(temp_transp))&(temp_transp!="")]
+tr_set<-ex_tr[,i]
+tr_set<-tr_set[,-(1:7)]
+```
+
+We will use three machine learning methods to attempt to classify the type of exercise being done based on the observation. The three methods we will use are Linear discriminant analysis, Adaboost and Random forest.
+
+```{r, echo=T, cache=T}
+rf3<-train(classe~.,data=tr_set,method="rf",trControl=trainControl(method="cv",number=3))
+boost3<-train(classe~.,data=tr_set,method="AdaBoost.M1",trControl=trainControl(method="cv",number=3))
+lda3<-train(classe~.,data=tr_set,method="lda",trControl=trainControl(method="cv",number=3))
+```
+
+For each method we did three-fold cross validation (as this was the best compromise of optimizing hyperparameters and keeping computation time low). Cross validation is used to find the optimal hyperparameters for each method (for boosting and random forest).
+
+We see the optimal hyperparameter for the random forest method is to randomly select 27 variables at each node.
+
+```{r, echo=T}
+rf3$results
+```
+
+We also see the optimal parameters such as the the numbers of trees and maximum depth of the trees for adaboost (150 trees, with a maximum depth of 3)
+
+```{r, echo=T}
+boost3$results
+```
+
+
+We can also compare the cross validated accuracy across all three methods (for the optimal parameters)
+
+```{r, echo=T}
+rf3$resample
+```
+
+This is the cross validated accuracy for random forest
+
+```{r, echo=T}
+boost3$resample
+```
+
+This is the cross validated accuracy for Adaboost
+
+```{r, echo=T}
+lda3$resample
+```
+
+This is the cross validated accuracy for linear discriminant analysis.
+
+From the above tables we see that random forest has a significantly better cross validated accuracy than the other methods(lda is far worse than the other methods). Thus we will use the random Forest model we built to classify the test data. 
+
+Not only does the cross validation allows to find the optimal hyperparameters, but it also gives an estimate of the out of sample error (as cross validation leaves out part of the training set for each fold, so we can use it as test data to get a better accuracy). In this case is the average accuracy over the three cross validated samples which is 0.99235 or an out of sample error rate of about 0.76%. For random forest there is another way to estimate the out of sample error and that is the out of bag error rate (thus if you are not optimizing hyperparameters you do not need to do cross validation). The out of bag error rate basically runs the samples that were not included in the bootstrap samples to create each tree in the forest, down that tree, and we can calculate an average error rate. The result of the out of bag error estimate are seen below:
+
+```{r, echo=T}
+rf3$finalModel$err.rate[500,]
+rf3$finalModel$confusion
+```
+
+Thus we see the OOB error rate is about 0.41%, this is slightly lower than the cross validated error. The OOB should be considered more accurate as we only use 3-fold cross validation, and the OOB is calculated from 500 bootstrapped samples. Thus the difference is due the bias in the CV error, due to the low number of folds. This is verified as when we do 10 fold CV the CV error is about 0.42%.
+
+We can also see which variables were most important to correctly classify how the exercise is being done, by looking at the importance of each variable:
+
+```{r, echo=T}
+rf3$finalModel$importance[1:30,]
+```
+
+The values in the above table represent the decrease in correct classification when that variable's effect of the data is removed (the larger the value the more incorrect classifications). Thus we see that the motions associated with the belt are very important in correctly classifying what exercise is being done.
+
+Thus to predict whether the exercise was being done properly, we used the random Forest algorithm. We chose this algorithm as compared to LDA and Adaboost it provided the lowest CV error. We expect the out of sample error to be close to the OOB error at 0.41%.
